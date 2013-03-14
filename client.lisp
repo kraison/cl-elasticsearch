@@ -116,12 +116,15 @@
 
 (defun build-query (query stream)
   (json:with-object (stream)
-    (json:as-object-member ("term" stream)
-      (json:with-object (stream)
-        (map nil #'(lambda (i)
-                     (json:encode-object-member
-                      (symbol-name (car i)) (cdr i) stream))
-             query)))))
+    (if query
+        (json:as-object-member ("term" stream)
+          (json:with-object (stream)
+            (map nil #'(lambda (i)
+                         (json:encode-object-member
+                          (symbol-name (car i)) (cdr i) stream))
+                 query)))
+        (json:as-object-member ("match_all" stream)
+          (json:with-object (stream))))))
 
 (defun build-sort (sort stream)
   (map nil
@@ -143,7 +146,7 @@
              ))
        sort))
 
-(defun build-search-query (query &key sort filter facets fields no-fields?)
+(defun build-search-query (query &key sort filter facets fields no-fields? size from)
   (declare (ignore facets))
   (with-output-to-string (stream)
     (json:with-object (stream)
@@ -176,22 +179,30 @@
             (build-query query stream))))))
 
 (defun es-search (query type index-name &key sort filter fields no-fields?
-                  return-ids? facets)
+                  return-ids? facets size from)
   (let ((q (build-search-query query
                                :sort sort
                                :fields fields
                                :filter filter
                                :facets facets
+                               :size size
+                               :from from
                                :no-fields? (or no-fields? return-ids?))))
     (format t "~A" q)
-    (let ((r (es-request (format nil "~A/~A/_search" index-name type)
-                         :method :get
-                         :content q)))
-      (when (and (@ r :|hits|) (@ (@ r :|hits|) :|total|)
-                 (> (@ (@ r :|hits|) :|total|) 0))
-        (if return-ids?
-            (mapcar #'(lambda (hit)
-                        (@ hit :|_id|))
-                    (@ (@ r :|hits|) :|hits|))
-            (@ (@ r :|hits|) :|hits|))))))
+    (let ((parameters nil))
+      (when size
+        (push `("size" . ,(format nil "~D" size)) parameters))
+      (when from
+        (push `("from" . ,(format nil "~D" from)) parameters))
+      (let ((r (es-request (format nil "~A/~A/_search" index-name type)
+                           :method :get
+                           :args parameters
+                           :content q)))
+        (when (and (@ r :|hits|) (@ (@ r :|hits|) :|total|)
+                   (> (@ (@ r :|hits|) :|total|) 0))
+          (if return-ids?
+              (mapcar #'(lambda (hit)
+                          (@ hit :|_id|))
+                      (@ (@ r :|hits|) :|hits|))
+              (@ (@ r :|hits|) :|hits|)))))))
 
