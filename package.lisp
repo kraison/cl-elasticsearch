@@ -16,5 +16,6 @@
            #:delete-mapping
            #:get-mapping
            #:add-mapping
-           #:es-search))
+           #:es-search
+           #:free-form-search))
 

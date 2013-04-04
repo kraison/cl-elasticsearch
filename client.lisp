@@ -18,7 +18,7 @@
                     t)
                    ((and (>= status 200) (<= status 299))
                     (let ((response (clouchdb::decode-json stream)))
-                      (log:debug "~A" response)
+                      ;;(log:debug "~A" response)
                       response))
                    ((= status 404)
                     (let ((response (clouchdb::decode-json stream)))
@@ -140,6 +140,11 @@
                 (json:with-object (stream)
                   (json:encode-object-member
                    (symbol-name (car s)) (cdr s) stream))))
+             ((and (consp s) (stringp (car s)) (atom (cdr s)))
+              (json:as-array-member (stream)
+                (json:with-object (stream)
+                  (json:encode-object-member
+                   (car s) (cdr s) stream))))
              ((and (consp s) (consp (cdr s)))
               (json:as-array-member (stream)
                 (build-filter (list s) stream)))
@@ -206,3 +211,18 @@
                       (@ (@ r :|hits|) :|hits|))
               (@ (@ r :|hits|) :|hits|)))))))
 
+(defun free-form-search (string type index-name &key size from)
+  (let ((parameters nil))
+    (when size
+      (push `("size" . ,(format nil "~D" size)) parameters))
+    (when from
+      (push `("from" . ,(format nil "~D" from)) parameters))
+    (let ((r (es-request (format nil "~A/~A/_search" index-name type)
+                         :method :get
+                         :args parameters
+                         :content string)))
+      (when (and (@ r :|hits|) (@ (@ r :|hits|) :|total|)
+                 (> (@ (@ r :|hits|) :|total|) 0))
+        (mapcar #'(lambda (hit)
+                    (@ hit :|_id|))
+                (@ (@ r :|hits|) :|hits|))))))
