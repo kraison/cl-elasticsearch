@@ -4,37 +4,38 @@
                    (host *es-host*) (port *es-port*))
   (let ((uri (format nil "http://~A:~A/~A" host port query-string)))
     (log:debug "ES URI: ~A" uri)
-    (multiple-value-bind (stream status headers)
-        (http-request uri
-                      :method method
-                      :want-stream t
-                      :parameters args
-                      :content content
-                      :content-length t)
-      (unwind-protect
-           (progn
-             (log:debug "~A~%~A" status headers)
-             (cond ((= status 204)
-                    t)
-                   ((and (>= status 200) (<= status 299))
-                    (let ((response (clouchdb::decode-json stream)))
-                      ;;(log:debug "~A" response)
-                      response))
-                   ((= status 404)
-                    (let ((response (clouchdb::decode-json stream)))
-                      (log:debug "ES ERROR RESPONSE: ~A" response)
-                      (error 'unknown-resource-error
-                             :message
-                             (format nil "~A" response))))
-                   (t
-                    (let ((response (clouchdb::decode-json stream)))
-                      (log:debug "ES ERROR RESPONSE: ~A" response)
-                      (error 'elasticsearch-error
-                             :message
-                             (format nil "~A: ~A" status response))))))
-        (when (open-stream-p stream) (close stream))))))
+    (let ((*drakma-default-external-format* :utf-8))
+      (multiple-value-bind (stream status headers)
+          (http-request uri
+                        :method method
+                        :want-stream t
+                        :parameters args
+                        :content content
+                        :content-length t)
+        (unwind-protect
+             (progn
+               (log:debug "~A~%~A" status headers)
+               (cond ((= status 204)
+                      t)
+                     ((and (>= status 200) (<= status 299))
+                      (let ((response (clouchdb::decode-json stream)))
+                        ;;(log:debug "~A" response)
+                        response))
+                     ((= status 404)
+                      (let ((response (clouchdb::decode-json stream)))
+                        (log:debug "ES ERROR RESPONSE: ~A" response)
+                        (error 'unknown-resource-error
+                               :message
+                               (format nil "~A" response))))
+                     (t
+                      (let ((response (clouchdb::decode-json stream)))
+                        (log:debug "ES ERROR RESPONSE: ~A" response)
+                        (error 'elasticsearch-error
+                               :message
+                               (format nil "~A: ~A" status response))))))
+          (when (open-stream-p stream) (close stream)))))))
 
-(defun list-nodes ()
+(defun list-cluster-nodes ()
   (es-request "_cluster/nodes/_local"))
 
 (defun node-info (name-or-ip)
@@ -42,6 +43,12 @@
 
 (defun create-index (name)
   (es-request name :method :put))
+
+(defun open-index (name)
+  (es-request (format nil "~A/_open" name) :method :post))
+
+(defun close-index (name)
+  (es-request (format nil "~A/_close" name) :method :post))
 
 (defun delete-index (name)
   (es-request name :method :delete))
@@ -72,11 +79,44 @@
                 :args args
                 :method :get)))
 
+(defun get-settings (index-name)
+  (es-request (format nil "~A/_settings" index-name) :method :get))
+
+(defun update-settings (settings index-name)
+  ;;(close-index index-name)
+  ;;(prog1
+  (es-request (format nil "~A/" index-name)
+              :method :put
+              :content settings))
+  ;;(open-index index-name)))
+
 (defun delete-mapping (type index-name)
   (es-request (format nil "~A/~A/_mapping" index-name type) :method :delete))
 
 (defun get-mapping (type index-name)
   (es-request (format nil "~A/~A/_mapping" index-name type) :method :get))
+
+(defun encode-mapping (mapping type)
+  (with-output-to-string (stream)
+    (json:with-object (stream)
+      (json:as-object-member (type stream)
+        (json:with-object (stream)
+          (json:as-object-member ("properties" stream)
+            (json:with-object (stream)
+              (map nil
+                   #'(lambda (def)
+                       (json:as-object-member
+                           ((symbol-name (first def)) stream)
+                         (json:with-object (stream)
+                           (map nil
+                                #'(lambda (slot)
+                                    (json:encode-object-member
+                                     (string-downcase
+                                      (symbol-name (car slot)))
+                                     (cdr slot)
+                                     stream))
+                                (second def)))))
+                   mapping))))))))
 
 (defun add-mapping (mapping type index-name)
   (let* ((map (with-output-to-string (stream)
@@ -117,7 +157,7 @@
 (defun build-query (query stream)
   (json:with-object (stream)
     (if query
-        (json:as-object-member ("term" stream)
+        (json:as-object-member ("match" stream)
           (json:with-object (stream)
             (map nil #'(lambda (i)
                          (json:encode-object-member
@@ -193,7 +233,7 @@
                                :size size
                                :from from
                                :no-fields? (or no-fields? return-ids?))))
-    (format t "~A" q)
+    (format t "~A~%" q)
     (let ((parameters nil))
       (when size
         (push `("size" . ,(format nil "~D" size)) parameters))
@@ -223,6 +263,4 @@
                          :content string)))
       (when (and (@ r :|hits|) (@ (@ r :|hits|) :|total|)
                  (> (@ (@ r :|hits|) :|total|) 0))
-        (mapcar #'(lambda (hit)
-                    (@ hit :|_id|))
-                (@ (@ r :|hits|) :|hits|))))))
+        (@ (@ r :|hits|) :|hits|)))))
