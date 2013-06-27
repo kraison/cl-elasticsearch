@@ -17,7 +17,8 @@
                :log4cl
                :bordeaux-threads)
   :components ((:file "package")
-               (:file "globals" :depends-on ("package"))
+               (:file "json" :depends-on ("package"))
+               (:file "globals" :depends-on ("json"))
                (:file "utilities" :depends-on ("globals"))
                (:file "conditions" :depends-on ("utilities"))
                (:file "client" :depends-on ("conditions"))

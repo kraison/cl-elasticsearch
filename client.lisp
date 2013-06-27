@@ -1,5 +1,6 @@
 (in-package :cl-elasticsearch)
 
+#|
 (defun es-request (query-string &key args content (method :get)
                    (host *es-host*) (port *es-port*))
   (let ((uri (format nil "http://~A:~A/~A" host port query-string)))
@@ -19,7 +20,7 @@
                       t)
                      ((and (>= status 200) (<= status 299))
                       (let ((response (clouchdb::decode-json stream)))
-                        ;;(log:debug "~A" response)
+                        (format t  "RESPONSE: ~A~%" response)
                         response))
                      ((= status 404)
                       (let ((response (clouchdb::decode-json stream)))
@@ -34,6 +35,43 @@
                                :message
                                (format nil "~A: ~A" status response))))))
           (when (open-stream-p stream) (close stream)))))))
+|#
+
+(defun es-request (query-string &key args content (method :get)
+                   (host *es-host*) (port *es-port*))
+  (let ((uri (format nil "http://~A:~A/~A" host port query-string)))
+    (log:debug "ES URI: ~A" uri)
+    (let ((*drakma-default-external-format* :utf-8))
+      (multiple-value-bind (body status headers)
+          (http-request uri
+                        :method method
+                        :parameters args
+                        :content content
+                        :content-length t)
+        (declare (ignore headers))
+        (setq body (sb-ext:octets-to-string body))
+        ;;(format t "BODY: ~A~%" body)
+        ;;(log:debug "~A~%~A" status headers)
+        (cond ((= status 204)
+               t)
+              ((and (>= status 200) (<= status 299))
+               (let ((response (with-input-from-string (in body)
+                                 (clouchdb::decode-json in))))
+                 response))
+              ((= status 404)
+               (let ((response (with-input-from-string (in body)
+                                 (clouchdb::decode-json in))))
+                 (log:debug "ES ERROR RESPONSE: ~A" response)
+                 (error 'unknown-resource-error
+                        :message
+                        (format nil "~A" response))))
+              (t
+               (let ((response (with-input-from-string (in body)
+                                 (clouchdb::decode-json in))))
+                 (log:debug "ES ERROR RESPONSE: ~A" response)
+                 (error 'elasticsearch-error
+                        :message
+                        (format nil "~A: ~A" status response)))))))))
 
 (defun list-cluster-nodes ()
   (es-request "_cluster/nodes/_local"))
@@ -63,10 +101,12 @@
   (let ((args nil))
     (when parent
       (push `("parent" . ,(format nil "~A" parent)) args))
-    (es-request (format nil "~A/~A/~A" index-name type id)
-                :method :put
-                :args args
-                :content (document-to-json item))))
+    (let ((json (document-to-json item)))
+      ;;(format t "JSON: ~A~%" json)
+      (es-request (format nil "~A/~A/~A" index-name type id)
+                  :method :put
+                  :args args
+                  :content json))))
 
 (defun delete-from-index (id type index-name)
   (es-request (format nil "~A/~A/~A" index-name type id) :method :delete))
@@ -157,12 +197,24 @@
 (defun build-query (query stream)
   (json:with-object (stream)
     (if query
-        (json:as-object-member ("match" stream)
-          (json:with-object (stream)
-            (map nil #'(lambda (i)
-                         (json:encode-object-member
-                          (symbol-name (car i)) (cdr i) stream))
-                 query)))
+        (if (> (length query) 1)
+            (json:as-object-member ("bool" stream)
+              (json:with-object (stream)
+                (map nil
+                     #'(lambda (i)
+                         (json:as-object-member ("must" stream)
+                           (json:with-object (stream)
+                             (json:as-object-member ("match" stream)
+                               (json:with-object (stream)
+                                 (json:encode-object-member
+                                  (symbol-name (car i)) (cdr i) stream))))))
+                     query)))
+            (json:as-object-member ("match" stream)
+              (json:with-object (stream)
+                (json:encode-object-member
+                 (symbol-name (car (first query)))
+                 (cdr (first query))
+                 stream))))
         (json:as-object-member ("match_all" stream)
           (json:with-object (stream))))))
 
@@ -233,7 +285,8 @@
                                :size size
                                :from from
                                :no-fields? (or no-fields? return-ids?))))
-    (format t "~A~%" q)
+    (log:debug "ES-SEARCH: ~A" q)
+    (format t "ES-SEARCH: ~A~%" q)
     (let ((parameters nil))
       (when size
         (push `("size" . ,(format nil "~D" size)) parameters))
@@ -245,11 +298,14 @@
                            :content q)))
         (when (and (@ r :|hits|) (@ (@ r :|hits|) :|total|)
                    (> (@ (@ r :|hits|) :|total|) 0))
-          (if return-ids?
-              (mapcar #'(lambda (hit)
-                          (@ hit :|_id|))
-                      (@ (@ r :|hits|) :|hits|))
-              (@ (@ r :|hits|) :|hits|)))))))
+          (let ((hits (@ (@ r :|hits|) :|total|)))
+            (values
+             (if return-ids?
+                 (mapcar #'(lambda (hit)
+                             (@ hit :|_id|))
+                         (@ (@ r :|hits|) :|hits|))
+                 (@ (@ r :|hits|) :|hits|))
+             hits)))))))
 
 (defun free-form-search (string type index-name &key size from)
   (let ((parameters nil))
