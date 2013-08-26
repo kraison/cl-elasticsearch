@@ -317,6 +317,13 @@
                          :method :get
                          :args parameters
                          :content string)))
-      (when (and (@ r :|hits|) (@ (@ r :|hits|) :|total|)
-                 (> (@ (@ r :|hits|) :|total|) 0))
-        (@ (@ r :|hits|) :|hits|)))))
+        (when (and (@ r :|hits|) (@ (@ r :|hits|) :|total|)
+                   (> (@ (@ r :|hits|) :|total|) 0))
+          (let ((hits (@ (@ r :|hits|) :|total|)))
+            (values
+             (@ (@ r :|hits|) :|hits|)
+             hits))))))
+
+;      (when (and (@ r :|hits|) (@ (@ r :|hits|) :|total|)
+;                 (> (@ (@ r :|hits|) :|total|) 0))
+;        (@ (@ r :|hits|) :|hits|)))))
