@@ -286,7 +286,7 @@
                                :from from
                                :no-fields? (or no-fields? return-ids?))))
     (log:debug "ES-SEARCH: ~A" q)
-    (format t "ES-SEARCH: ~A~%" q)
+    ;;(format t "ES-SEARCH: ~A~%" q)
     (let ((parameters nil))
       (when size
         (push `("size" . ,(format nil "~D" size)) parameters))
