@@ -108,6 +108,17 @@
                   :args args
                   :content json))))
 
+(defun update-in-index (id type index-name json)
+  ;;curl -XPOST 'localhost:9200/test/type1/1/_update' -d '{
+  ;;    "script" : "ctx._source.counter += count",
+  ;;    "params" : {
+  ;;        "count" : 4
+  ;;    }
+  ;;}'
+  (es-request (format nil "~A/~A/~A/_update" index-name type id)
+              :method :post
+              :content json))
+
 (defun delete-from-index (id type index-name)
   (es-request (format nil "~A/~A/~A" index-name type id) :method :delete))
 

@@ -13,6 +13,7 @@
            #:refresh-index
            #:optimize-index
            #:add-to-index
+           #:update-in-index
            #:delete-from-index
            #:get-from-index
            #:get-settings
