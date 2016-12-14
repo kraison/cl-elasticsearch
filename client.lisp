@@ -38,8 +38,11 @@
 |#
 
 (defun es-request (query-string &key args content (method :get)
-                   (host *es-host*) (port *es-port*))
-  (let ((uri (format nil "http://~A:~A/~A" host port query-string)))
+                                  use-ssl-p
+                                  (host *es-host*) (port *es-port*)
+                                  (user *es-user*) (pass *es-pass*))
+  (let ((uri (format nil "http~A://~A:~A/~A"
+                     (if use-ssl-p "s" "") host port query-string)))
     (log:debug "ES URI: ~A" uri)
     (let ((*drakma-default-external-format* :utf-8))
       (multiple-value-bind (body status headers)
@@ -47,6 +50,8 @@
                         :method method
                         :parameters args
                         :content content
+                        :basic-authorization (when (and user pass)
+                                               (list user pass))
                         :content-length t)
         (declare (ignore headers))
         (setq body (sb-ext:octets-to-string body))

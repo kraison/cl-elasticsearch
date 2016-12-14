@@ -4,6 +4,8 @@
   (:use #:cl #:cl-ppcre #:clouchdb #:drakma #:bordeaux-threads)
   (:export #:*es-host*
            #:*es-port*
+           #:*es-user*
+           #:*es-pass*
            #:list-cluster-nodes
            #:node-info
            #:create-index
@@ -23,4 +25,3 @@
            #:add-mapping
            #:es-search
            #:free-form-search))
-
